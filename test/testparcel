@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.22 <0.9.0;
+
+import "truffle/Assert.sol";
+import "../contracts/Parcel.sol";
+
+contract TestParcel {
+    Parcel private parcel;
+    address private owner;
+    uint256 private price;
+    uint256 private size;
+    string private location;
+
+    function beforeEach() public {
+        owner = msg.sender;
+        price = 100;
+        size = 5;
+        location = "123 Main St";
+        parcel = new Parcel(owner, price, size, location);
+    }
+
+    function testInitialParameters() public {
+        Assert.equal(parcel.owner(), owner, "Owner address should match");
+        Assert.equal(parcel.price(), price, "Price should match");
+        Assert.equal(parcel.size(), size, "Size should match");
+        Assert.equal(parcel.location(), location, "Location should match");
+    }
+
+    function testSetPrice() public {
+        uint256 newPrice = 200;
+        parcel.setPrice(newPrice);
+        Assert.equal(parcel.price(), newPrice, "Price should be updated");
+    }
+
+    function testSetSize() public {
+        uint256 newSize = 10;
+        parcel.setSize(newSize);
+        Assert.equal(parcel.size(), newSize, "Size should be updated");
+    }
+
+    function testSetLocation() public {
+        string memory newLocation = "456 Elm St";
+        parcel.setLocation(newLocation);
+        Assert.equal(parcel.location(), newLocation, "Location should be updated");
+    }
+
+    function testPurchaseParcel() public {
+        uint256 initialBalance = address(this).balance;
+        parcel.purchaseParcel{value: price}();
+        Assert.equal(parcel.owner(), msg.sender, "Parcel should be purchased by the buyer");
+        Assert.equal(address(this).balance, initialBalance - price, "Contract balance should be updated");
+    }
+
+    function testPurchaseParcelWithInsufficientFunds() public {
+        bool result = address(parcel).call{value: price - 1}("");
+        Assert.equal(result, false, "Parcel purchase should fail with insufficient funds");
+    }
+/**used to receive Ether when testing the purchaseParcel function,
+ *  as the function requires a payment in Ether to complete the purchase */
+    receive() external payable {}
+}
