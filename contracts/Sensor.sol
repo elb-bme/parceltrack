@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
@@ -29,16 +30,6 @@ contract Sensor is Ownable {
     }
 
 /**
- * @dev Modifier to restrict access to functions only to the owner of the parcel that the sensor is attached to
- * @param _parcelId The ID of the parcel that the sensor is attached to
- */
-    modifier onlyAttachedToParcel(string memory _parcelId) {
-        require(attachedParcels[_parcelId], "Sensor is not attached to the parcel");
-        require(msg.sender == Parcel(_parcelId).owner(), "Only the parcel owner can log violations");
-        _;
-    }
-
-/**
  * @dev Attach the sensor to a parcel
  * @param _parcelId The ID of the parcel to attach the sensor to
  */
@@ -58,14 +49,12 @@ contract Sensor is Ownable {
 
 /**
  * @dev Logs a violation of an SLA by the sensor attached to the parcel.
- *      Can only be called by the owner of the parcel that the sensor is attached to.
  *      The function stores the parcel ID that the sensor is attached to,
  *      so that when a violation occurs, it can be logged in the context of the parcel.
  * @param _sla The SLA that has been violated.
  * @param _parcelId The ID of the parcel that the sensor is attached to.
  */
-    function logViolation(string memory _sla, string memory _parcelId) public onlyAttachedToParcel(_parcelId) {
-        require(slas[_sla], "Invalid SLA");
+    function logViolation(string memory _sla, string memory _parcelId) public {
         emit SLAViolation(_sla, _parcelId, sensorId);
     }
 }
