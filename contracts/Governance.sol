@@ -4,7 +4,7 @@ pragma solidity >=0.4.22 <0.9.0;
 import "./Parcel.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Manager is Ownable{
+contract Governance {
   struct SLAData {
         uint256 threshold;
         bool violated;
