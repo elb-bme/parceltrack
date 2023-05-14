@@ -1,60 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
-
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * @title Sensor
- * @dev A smart contract for registering and managing sensors for tracking parcels
- */
+import "./Parcel.sol";
 
 contract Sensor is Ownable {
-    string public sensorId;
-    string public sensorType;
-    mapping(string => bool) public slas;
-    mapping(string => bool) public attachedParcels;
+    Parcel private parcelContract;
 
-    event SensorRegistered(string sensorId, string sensorType);
-    event SLAViolation(string indexed sla, string parcelId, string sensorId);
-    event SensorAttached(string parcelId, string sensorId);
-    event SensorDetached(string parcelId, string sensorId);
+    // Event to indicate a measured value has been logged
+    event ValueLogged(address indexed sensor, uint256 value);
 
-    constructor(string memory _sensorId, string memory _sensorType, string[] memory _slas) {
-        sensorId = _sensorId;
-        sensorType = _sensorType;
-        for(uint i = 0; i < _slas.length; i++) {
-            slas[_slas[i]] = true;
-        }
-        emit SensorRegistered(sensorId, sensorType);
+    // Function to set the address of the associated Parcel contract
+    function setParcelContract(address _parcelContract) external onlyOwner {
+        require(_parcelContract != address(0), "Invalid Parcel contract address");
+        parcelContract = Parcel(_parcelContract);
     }
 
-/**
- * @dev Attach the sensor to a parcel
- * @param _parcelId The ID of the parcel to attach the sensor to
- */
-    function attachToParcel(string memory _parcelId) public onlyOwner {
-        attachedParcels[_parcelId] = true;
-        emit SensorAttached(_parcelId, sensorId);
-    }
+    // Function to log a measured value for a specific sensor
+    function logValue(uint256 value) external {
+        require(address(parcelContract) != address(0), "Parcel contract address not set");
+        require(value > 0, "Invalid measured value");
 
-/**
- * @dev Detach the sensor from a parcel
- * @param _parcelId The ID of the parcel to detach the sensor from
- */
-    function detachFromParcel(string memory _parcelId) public onlyOwner {
-        attachedParcels[_parcelId] = false;
-        emit SensorDetached(_parcelId, sensorId);
-    }
+        address sensorAddress = address(this);
+        uint256 tokenId = parcelContract.getSensorTokenId(sensorAddress);
 
-/**
- * @dev Logs a violation of an SLA by the sensor attached to the parcel.
- *      The function stores the parcel ID that the sensor is attached to,
- *      so that when a violation occurs, it can be logged in the context of the parcel.
- * @param _sla The SLA that has been violated.
- * @param _parcelId The ID of the parcel that the sensor is attached to.
- */
-    function logViolation(string memory _sla, string memory _parcelId) public {
-        emit SLAViolation(_sla, _parcelId, sensorId);
+        require(tokenId > 0, "Sensor not associated with any parcel");
+
+        // Log the measured value
+        emit ValueLogged(sensorAddress, value);
+
+        // Perform any other operations with the measured value as needed
     }
 }

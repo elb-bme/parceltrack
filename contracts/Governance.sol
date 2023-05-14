@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
+import "./Sensor.sol";
 import "./Parcel.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -11,7 +12,8 @@ contract Governance is Ownable {
         string description;
     }
 
-    address private parcelContract;
+
+    Parcel private parcelContract;
     mapping(uint256 => SLAData) private _slaData;
 
     event ParcelRegistered(uint256 indexed tokenId, address owner);
@@ -21,10 +23,11 @@ contract Governance is Ownable {
     event SLAViolated(uint256 indexed tokenId);
 
     constructor(address _parcelContract) {
-        parcelContract = _parcelContract;
+        parcelContract = Parcel(_parcelContract);
     }
 
-    function registerParcel(address owner) external onlyOwner {
+
+/*     function registerParcel(address owner) external onlyOwner {
     uint256 tokenId = parcelContract.getTokenCounter();
     parcelContract.safeMint(owner);
 
@@ -34,8 +37,22 @@ contract Governance is Ownable {
     sla.violated = false;
 
     emit ParcelRegistered(tokenId, owner);
-}
+} */
+function registerParcel(address owner, address sensor) external onlyOwner {
+    uint256 tokenId = parcelContract.getTokenCounter();
+    parcelContract.safeMint(owner);
 
+    // Create SLA data for the parcel
+    SLAData storage sla = _slaData[tokenId];
+    sla.threshold = 0;
+    sla.violated = false;
+
+    emit ParcelRegistered(tokenId, owner);
+
+    // Add the sensor to the registered parcel
+    Sensor(sensor).setParcelContract(address(parcelContract));
+    parcelContract.addSensor(tokenId, sensor);
+}
     function initiateHandover(uint256 tokenId, address to) external {
         Parcel parcel = Parcel(parcelContract);
         parcel.initiateHandover(tokenId, to);

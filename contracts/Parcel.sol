@@ -11,6 +11,8 @@ contract Parcel is ERC721, Ownable {
     struct ParcelData {
         address[] sensors;
         mapping(address => bool) sensorStatus;
+        mapping(address => uint256) _sensorTokenIds;
+
     }
 
     mapping(uint256 => ParcelData) private _parcelData;
@@ -19,6 +21,7 @@ contract Parcel is ERC721, Ownable {
     event ParcelRegistered(uint256 indexed tokenId, address owner);
     event HandoverInitiated(uint256 indexed tokenId, address from, address to);
     event HandoverReceived(uint256 indexed tokenId, address from, address to);
+    event SensorAdded(uint256 indexed tokenId, address sensor);
 
     constructor(string memory name, string memory symbol) ERC721(name, symbol) {}
 
@@ -60,7 +63,29 @@ contract Parcel is ERC721, Ownable {
         return _getNextTokenId();
     }
 
-    function safeMint(address to) internal {
+    // Function to set the token ID associated with a sensor address
+    function setSensorTokenId(address sensorAddress, uint256 tokenId) external onlyOwner {
+    require(sensorAddress != address(0), "Invalid sensor address");
+    require(tokenId > 0, "Invalid token ID");
+
+    ParcelData storage parcel = _parcelData[tokenId];
+    parcel._sensorTokenIds[sensorAddress] = tokenId;    
+    }
+
+
+        // Function to get the token ID associated with a sensor address
+    function getSensorTokenId(address sensor) public view returns (uint256) {
+        uint256 tokenId = 0;
+        for (uint256 i = 1; i <= _tokenCounter; i++) {
+            if (_exists(i) && _parcelData[i].sensorStatus[sensor]) {
+                tokenId = i;
+                break;
+            }
+        }
+        return tokenId;
+    }
+
+    function safeMint(address to) public {
         _tokenCounter = _tokenCounter.add(1);
         _safeMint(to, _tokenCounter);
     }
@@ -82,6 +107,19 @@ contract Parcel is ERC721, Ownable {
         require(_isApprovedOrOwner(msg.sender, tokenId), "Not approved or owner");
         require(to != address(0), "Invalid recipient address");
         super.safeTransferFrom(from, to, tokenId);
+    }
+
+    function addSensor(uint256 tokenId, address sensor) external onlyOwner {
+        require(_exists(tokenId), "Token does not exist");
+        require(sensor != address(0), "Invalid sensor address");
+
+        ParcelData storage parcel = _parcelData[tokenId];
+        require(!parcel.sensorStatus[sensor], "Sensor already added");
+
+        parcel.sensors.push(sensor);
+        parcel.sensorStatus[sensor] = true;
+
+        emit SensorAdded(tokenId, sensor);
     }
 
     // Override transferFrom function from ERC721
