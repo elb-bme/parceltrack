@@ -1,131 +1,172 @@
-// SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "./Sensor.sol";
 
-contract Parcel is ERC721, Ownable {
-    using SafeMath for uint256;
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+
+contract Parcel is ERC721 {
+    
+    uint256 private _parcelIds = 0;
+    
+    Sensor private sensorContract;
+
+    struct SLA {
+        string description;
+        uint256 threshold;
+        bool violated;
+    }
 
     struct ParcelData {
-        address[] sensors;
-        mapping(address => bool) sensorStatus;
-        mapping(address => uint256) _sensorTokenIds;
-
+        address currentOwner;
+        address destination;
+        uint256 deliveryStatus; // 0: InTransit, 1: Delivered
     }
 
-    mapping(uint256 => ParcelData) private _parcelData;
-    uint256 private _tokenCounter;
+    mapping(uint256 => ParcelData) private parcels;
+    mapping(uint256 => SLA) private slas;
 
-    event ParcelRegistered(uint256 indexed tokenId, address owner);
-    event HandoverInitiated(uint256 indexed tokenId, address from, address to);
-    event HandoverReceived(uint256 indexed tokenId, address from, address to);
-    event SensorAdded(uint256 indexed tokenId, address sensor);
+    event ParcelRegistered(uint256 indexed parcelId, address indexed owner);
+    event ParcelTransferred(address indexed from, address indexed to, uint256 indexed parcelId);
+    event SensorRegistered(uint256 indexed parcelId, uint256 indexed sensorId, address indexed owner);
+    event SensorActivated(uint256 indexed parcelId, uint256 indexed sensorId);
+    event SensorDeactivated(uint256 indexed parcelId, uint256 indexed sensorId);
+    event SLASet(uint indexed _parcelId, uint indexed threshold);
+    event SLAViolation(uint256 indexed parcelId, uint value);
 
-    constructor(string memory name, string memory symbol) ERC721(name, symbol) {}
+    constructor() ERC721("Parcel", "PCL") { _parcelIds++; }
 
-    function registerParcel() external {
-        uint256 tokenId = _getNextTokenId();
-        _safeMint(msg.sender, tokenId);
-
-        ParcelData storage parcel = _parcelData[tokenId];
-        emit ParcelRegistered(tokenId, msg.sender);
+    function setSensorContract(address _sensorContract) external {
+        require(_sensorContract != address(0), "Invalid Parcel contract address");
+        sensorContract = Sensor(_sensorContract);
     }
 
-    function initiateHandover(uint256 tokenId, address to) external {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "Only the current owner can initiate a handover");
-        require(to != address(0), "Invalid recipient address");
+    function registerParcel(
+        address _destination,
+        string memory _slaDescription,
+        uint256 _slaThreshold
+    ) public returns (uint256) {
+        uint256 parcelId =_parcelIds;
 
-        emit HandoverInitiated(tokenId, msg.sender, to);
-        _transfer(msg.sender, to, tokenId);
+        ParcelData storage parcel = parcels[parcelId];
+        parcel.currentOwner = msg.sender;
+        parcel.destination = _destination;
+        parcel.deliveryStatus = 0;
+
+        SLA memory newSLA;
+        newSLA.description = _slaDescription;
+        newSLA.threshold = _slaThreshold;
+        slas[parcelId] = newSLA;
+
+        _mint(msg.sender, parcelId);
+        _parcelIds++;
+
+        emit ParcelRegistered(parcelId, msg.sender);
+
+        return parcelId;
     }
 
-    function receiveHandover(uint256 tokenId) external {
-        require(_exists(tokenId), "Token does not exist");
-        require(ownerOf(tokenId) != msg.sender, "You already own the parcel");
+    function attachSensor(uint256 _parcelId) public returns (uint256) {
+        require(_exists(_parcelId), "Parcel does not exist");
+        uint threshold = slas[_parcelId].threshold;
+        uint256 sensorId = sensorContract.attachSensor(_parcelId, threshold);
+        emit SensorRegistered(_parcelId, sensorId, msg.sender);
 
-        address from = ownerOf(tokenId);
-        emit HandoverReceived(tokenId, from, msg.sender);
-        _transfer(from, msg.sender, tokenId);
-    }
-    
-    function getTokenCounter() public view returns (uint256) {
-        return _tokenCounter;
-    }
-    // Helper function to get the next token ID
-    function _getNextTokenId() public returns (uint256) {
-        _tokenCounter = _tokenCounter.add(1);
-        return _tokenCounter;
+        return sensorId;
     }
 
-    function getNextTokenId() external returns (uint256) {
-        return _getNextTokenId();
+    function activateSensor(uint256 _parcelId) public {
+        require(_exists(_parcelId), "Parcel does not exist");
+        require(!(sensorContract.getSensorStatus(_parcelId)), "Sensor is already activated");
+
+        sensorContract.activateSensor(_parcelId);
+        uint sensorId = sensorContract.getSensorId(_parcelId);
+        emit SensorActivated(_parcelId, sensorId);
     }
 
-    // Function to set the token ID associated with a sensor address
-    function setSensorTokenId(address sensorAddress, uint256 tokenId) external onlyOwner {
-    require(sensorAddress != address(0), "Invalid sensor address");
-    require(tokenId > 0, "Invalid token ID");
+    function deactivateSensor(uint256 _parcelId) public {
+        require(_exists(_parcelId), "Parcel does not exist");
+        require((sensorContract.getSensorStatus(_parcelId)), "Sensor is already deactivated");
 
-    ParcelData storage parcel = _parcelData[tokenId];
-    parcel._sensorTokenIds[sensorAddress] = tokenId;    
+        sensorContract.deactivateSensor(_parcelId);
+        uint sensorId = sensorContract.getSensorId(_parcelId);
+
+        emit SensorDeactivated(_parcelId, sensorId);
     }
 
 
-        // Function to get the token ID associated with a sensor address
-    function getSensorTokenId(address sensor) public view returns (uint256) {
-        uint256 tokenId = 0;
-        for (uint256 i = 1; i <= _tokenCounter; i++) {
-            if (_exists(i) && _parcelData[i].sensorStatus[sensor]) {
-                tokenId = i;
-                break;
-            }
+    function logValue(uint _parcelId, uint value) external {
+        if(value > slas[_parcelId].threshold) {
+            slas[_parcelId].violated = true;
+            emit SLAViolation(_parcelId, value);
         }
-        return tokenId;
     }
 
-    function safeMint(address to) public {
-        _tokenCounter = _tokenCounter.add(1);
-        _safeMint(to, _tokenCounter);
+
+    function setSLA(uint256 _parcelId, uint256 threshold, string calldata description) external {
+        slas[_parcelId].threshold = threshold;
+        slas[_parcelId].description = description;
+        slas[_parcelId].violated = false;
+
+        emit SLASet(_parcelId, threshold);
     }
 
-    // Override balanceOf function from ERC721
-    function balanceOf(address owner) public view virtual override returns (uint256) {
-        require(owner != address(0), "Invalid address");
-        return super.balanceOf(owner);
+    function getSLA(uint256 tokenId) external view returns (uint256, bool, string memory) {
+
+        SLA memory sla = slas[tokenId];
+        return (sla.threshold, sla.violated, sla.description);
     }
 
-    // Override ownerOf function from ERC721
-    function ownerOf(uint256 tokenId) public view virtual override returns (address) {
-        require(_exists(tokenId), "Token does not exist");
-        return super.ownerOf(tokenId);
+    function checkSLAViolation(uint256 tokenId) public view returns (bool) {
+        return slas[tokenId].violated;
     }
 
-    // Override safeTransferFrom function from ERC721
-    function safeTransferFrom(address from, address to, uint256 tokenId) public virtual override {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "Not approved or owner");
-        require(to != address(0), "Invalid recipient address");
-        super.safeTransferFrom(from, to, tokenId);
+    function approveTransfer(address _to, uint256 _parcelId) public {
+        address owner = ownerOf(_parcelId);
+        require(_isApprovedOrOwner(msg.sender, _parcelId), "You are not allowed to approve");
+
+        _approve(_to, _parcelId);
+        emit Approval(owner, _to, _parcelId);
     }
 
-    function addSensor(uint256 tokenId, address sensor) external onlyOwner {
-        require(_exists(tokenId), "Token does not exist");
-        require(sensor != address(0), "Invalid sensor address");
+    function transferParcel(
+        address _from,
+        address _to,
+        uint256 _parcelId
+    ) public {
+        require(_isApprovedOrOwner(msg.sender, _parcelId), "Transfer not approved");
+        require(_isSLAViolationFree(_parcelId), "SLA violation detected");
+        require(_exists(_parcelId), "Parcel does not exist");
 
-        ParcelData storage parcel = _parcelData[tokenId];
-        require(!parcel.sensorStatus[sensor], "Sensor already added");
-
-        parcel.sensors.push(sensor);
-        parcel.sensorStatus[sensor] = true;
-
-        emit SensorAdded(tokenId, sensor);
+        _transfer(_from, _to, _parcelId);
+        emit ParcelTransferred(_from, _to, _parcelId);
     }
 
-    // Override transferFrom function from ERC721
-    function transferFrom(address from, address to, uint256 tokenId) public virtual override {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "Not approved or owner");
-        require(to != address(0), "Invalid recipient address");
-        super.transferFrom(from, to, tokenId);
+    function _isSLAViolationFree(uint256 _parcelId) public view returns (bool) {
+        return !slas[_parcelId].violated;
     }
+
+    function isSLAViolated(uint256 _parcelId) public view returns (bool) {
+        return slas[_parcelId].violated;
+    }
+
+    function getParcelOwner(uint256 _parcelId) public view returns (address) {
+        return ownerOf(_parcelId);
+    }
+
+    function getParcelDestination(uint256 _parcelId) public view returns (address) {
+        return parcels[_parcelId].destination;
+    }
+
+    function getDeliveryStatus(uint256 _parcelId) public view returns (uint256) {
+        return parcels[_parcelId].deliveryStatus;
+    }
+
+    function getSensorStatus(uint256 _parcelId) public view returns (bool) {
+        return sensorContract.getSensorStatus(_parcelId);
+    }
+
+    function getLatestParcelId() public view returns (uint256) {
+        return _parcelIds;
+    }
+
 }

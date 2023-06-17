@@ -21,16 +21,12 @@ contract SupplyChainTest {
     function testHandoverFunctionality() public {
         // Register a parcel
         parcelContract.registerParcel();
-
         // Get the initial owner of the parcel
         address initialOwner = parcelContract.ownerOf(1);
-
         // Initiate handover to another address
         parcelContract.initiateHandover(1, address(this));
-
         // Verify that the handover was initiated correctly
         Assert.equal(parcelContract.ownerOf(1), address(this), "Handover not initiated correctly");
-
         // Verify that the ownership of the parcel has changed
         Assert.notEqual(parcelContract.ownerOf(1), initialOwner, "Parcel ownership not changed");
     }
@@ -38,18 +34,24 @@ contract SupplyChainTest {
     function testSLAViolation() public {
         // Register a parcel
         parcelContract.registerParcel();
-
         // Set an SLA threshold for the parcel
         governanceContract.setSLA(1, 100, "SLA Threshold");
-
         // Log a sensor value that violates the SLA threshold
         sensorContract.logValue(200);
-
         // Verify that the SLA violation event is emitted
         (uint256 threshold, bool violated, string memory description) = governanceContract.getSLA(1);
         Assert.isTrue(violated, "SLA violation not detected");
     }
-
+function testSetSLA() public {
+        address owner = address(this);
+        governanceContract.registerParcel(owner, address(sensorContract));
+        uint256 tokenId = parcelContract.getTokenCounter();
+        governanceContract.setSLA(tokenId, 100, "Sample SLA");
+        (uint256 threshold, bool violated, string memory description) = governanceContract.getSLA(tokenId);
+        Assert.equal(threshold, 100, "Threshold does not match");
+        Assert.equal(violated, false, "Violated status does not match");
+        Assert.equal(description, "Sample SLA", "Description does not match");
+    }
     function testSensorTokenIDRetrieval() public {
         // Register multiple parcels
         parcelContract.registerParcel();
@@ -70,10 +72,8 @@ contract SupplyChainTest {
     function testTransferFunctionality() public {
         // Register a parcel
         parcelContract.registerParcel();
-
         // Transfer ownership to another address
         parcelContract.transferFrom(address(this), address(governanceContract), 1);
-
         // Verify that the ownership transfer was successful
         Assert.equal(parcelContract.ownerOf(1), address(governanceContract), "Ownership transfer failed");
     }
